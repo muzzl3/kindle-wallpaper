@@ -13,7 +13,7 @@ rsvg-convert --background-color=white -o almost_done.png almost_done.svg
 #We optimize the image
 pngcrush -force -c 0 almost_done.png done.png
 
-if [ -d "/path/to/your/folder" ]; then
+if [ -d "/var/www/kindle/" ]; then
     echo "Folder exists."
     #We move the image where it needs to be
     rm /var/www/kindle/done.png
