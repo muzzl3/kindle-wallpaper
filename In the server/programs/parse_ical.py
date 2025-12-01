@@ -1,120 +1,160 @@
 from icalendar import Calendar
+import recurring_ical_events
 import datetime
 from datetime import timedelta
 import urllib.request
 import time
 import codecs
+from itertools import groupby
+import json
+import sys
+import zoneinfo
 
-#Your private ical URL, if you don't know what to do here, read the README
-ICAL_URL = ""
+# Load settings from settings.json
+try:
+    # The script is run from 'In the server/' so the path is relative to that
+    with open('settings.json', 'r') as f:
+        settings = json.load(f)
+        ICAL_URL = settings['ICAL_URL']
+except FileNotFoundError:
+    print("Error: settings.json not found in 'In the server/'. Please create it based on settings.json.example.", file=sys.stderr)
+    exit(1)
+except KeyError:
+    print("Error: ICAL_URL not found in settings.json.", file=sys.stderr)
+    exit(1)
 
 urllib.request.urlretrieve(ICAL_URL, "basic.ics")
 
-cal = Calendar.from_ical(open('basic.ics','rb').read())
+ical_content = open('basic.ics', 'rb').read()
+ical_calendar = Calendar.from_ical(ical_content)
 
-all_day_events = []
-normal_events = []
+# --- New logic to group events by day ---
 
-for component in cal.walk('vevent'):
+events = []
+today = datetime.date.today()
+seven_days_out = today + timedelta(days=7)
+nz_tz = zoneinfo.ZoneInfo("Pacific/Auckland")
+utc_tz = zoneinfo.ZoneInfo("UTC")
 
-    #Offset from GMT timezone depending on Calendar provider (hours = x)
-    delta = timedelta(hours = 3)
+# Get all events in the range, including recurring ones, using the correct API
+event_list = recurring_ical_events.of(ical_calendar).between(
+    today,
+    seven_days_out
+)
 
-    date_start = component['DTSTART'].dt + delta
+for component in event_list:
+    dtstart = component.get('dtstart').dt
+    is_all_day = not isinstance(dtstart, datetime.datetime)
 
-    #Check if it is today
-    if( date_start.timetuple().tm_yday == datetime.datetime. now().timetuple().tm_yday ):
-        if date_start.timetuple().tm_year == datetime.datetime.now().timetuple().tm_year:
+    if is_all_day:
+        # All-day events have no timezone
+        start_date = dtstart
+        sort_key = datetime.datetime.combine(start_date, datetime.time.min)
+        events.append({
+            'summary': str(component.get('summary')),
+            'is_all_day': True,
+            'start_date': start_date,
+            'sort_key': sort_key,
+        })
+    else:
+        # It's a datetime object, handle timezone conversion
+        dtend = component.get('dtend').dt
 
-            #Check if is not  all day (It does have time so datetime works)
-            if ( type(date_start) is datetime.datetime ):
-                
-                normal_events.append(component)
-            else:
-                all_day_events.append(component)
+        # Make aware (assume UTC if naive) and convert to NZ time
+        if dtstart.tzinfo is None:
+            dtstart = dtstart.replace(tzinfo=utc_tz)
+        dtstart_nz = dtstart.astimezone(nz_tz)
 
-#Sort by date
-normal_events.sort(key=lambda hour: hour['DTSTART'].dt)
+        if dtend.tzinfo is None:
+            dtend = dtend.replace(tzinfo=utc_tz)
+        dtend_nz = dtend.astimezone(nz_tz)
 
-# Finnish svg
-output = codecs.open('after-weather.svg', 'r', encoding='utf-8').read()
+        start_date = dtstart_nz.date()
+        sort_key = dtstart_nz
 
-count = 0
+        events.append({
+            'summary': str(component.get('summary')),
+            'is_all_day': False,
+            'start_date': start_date,
+            'sort_key': sort_key,
+            'dtstart_nz': dtstart_nz,
+            'dtend_nz': dtend_nz,
+        })
 
-for event in normal_events:
+# Sort events: first by date, then all-day events first, then by time
+events.sort(key=lambda e: (e['start_date'], not e['is_all_day'], e['sort_key']))
 
-    date_start = event['DTSTART'].dt + delta
 
-    date_end = event['DTEND'].dt + delta
+# --- Dynamically calculate spacing to fill height ---
 
-    entry_date = date_start.strftime("%H:%M") + '-' +  date_end.strftime("%H:%M") 
-    entry_name = event['SUMMARY'] 
+# Group events by day to count them
+# The groupby iterator can only be consumed once, so we store the groups
+grouped_events = [list(g) for k, g in groupby(events, key=lambda e: e['start_date'])]
+num_days = len(grouped_events)
+num_events = len(events)
 
-    # Escape special characters for rsvg-convert
-    entry_name.replace("&", "&amp;")
-    entry_name.replace("<", "&lt;")
-    entry_name.replace(">", "&gt;")
+# Define available height and margins
+svg_height = 800
+top_margin = 50
+bottom_margin = 20 # Buffer at the bottom
+available_height = svg_height - top_margin - bottom_margin
 
-    output = output.replace('hour'+ str(count) ,entry_date)
-    output = output.replace('Name' + str(count) ,entry_name)
+# Calculate the ideal line height increment
+y_increment_px = 40  # Default value
+if num_days > 0 or num_events > 0:
+    # A day header takes up 1.2 units, and the space after a day takes 0.5 units. An event takes 1 unit.
+    total_units = (num_days * 1.2) + num_events + (num_days * 0.5)
+    if total_units > 0:
+        calculated_increment = available_height / total_units
+        # Ensure the increment is not so small that text overlaps
+        # Header font is 25, event font is 17.
+        # Header line height is 1.2 * increment, must be > 25, so increment > 20.83
+        # Event line height is increment, must be > 17.
+        min_increment = 21
+        y_increment_px = max(calculated_increment, min_increment)
 
-    count+=1
-    # Limit display of regular events to 5
-    if (count == 5):
 
-        break
+# --- Generate a blank SVG with calendar elements grouped by day ---
 
-count = 0
+svg_elements = []
+y_px = float(top_margin)
+x_px = 20
+x_name_offset = 260 # x for the name part of normal events
 
-for event in all_day_events:
+# Use the pre-grouped events
+for day_events in grouped_events:
+    if not day_events:
+        continue
+    day = day_events[0]['start_date']
 
-    entry_name = event['SUMMARY']
+    # Add a header for the day
+    # Use int(y_px) for pixel values as SVG attributes must be integers
+    svg_elements.append(f'<text x="{x_px}" y="{int(y_px)}" font-size="25px" font-weight="bold">{day.strftime("%A, %d %B")}</text>')
+    y_px += y_increment_px * 1.2
 
-    # Escape special characters for rsvg-convert
-    entry_name.replace("&", "&amp;")
-    entry_name.replace("<", "&lt;")
-    entry_name.replace(">", "&gt;")
-
-    output = output.replace('AllDay' + str(count) , entry_name)
-
-    count+=1
-    # Limit display of all day events to 2
-    if (count == 2 ):
+    for event_data in day_events:
+        summary = event_data['summary'].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
         
-        break
+        if event_data['is_all_day']:
+            entry_name = "All-day: " + summary
+            svg_elements.append(f'<text x="{x_px}" y="{int(y_px)}" font-size="17" font-weight="bold">{entry_name}</text>')
+        else:
+            dtstart_nz = event_data['dtstart_nz']
+            dtend_nz = event_data['dtend_nz']
+            entry_date = dtstart_nz.strftime("%H:%M") + '-' +  dtend_nz.strftime("%H:%M")
 
-#Erase unsused marks
-output = output.replace('hour0' ,'')
-output = output.replace('hour1' ,'')
-output = output.replace('hour2' ,'')
-output = output.replace('hour3' ,'')
-output = output.replace('hour4' ,'')
-
-output = output.replace('Name0' ,'')
-output = output.replace('Name1' ,'')
-output = output.replace('Name2' ,'')
-output = output.replace('Name3' ,'')
-output = output.replace('Name4' ,'')
-
-output = output.replace('AllDay0' ,'')
-output = output.replace('AllDay1' ,'')
+            svg_elements.append(f'<text x="{x_px}" y="{int(y_px)}" font-size="17">{entry_date}</text>')
+            svg_elements.append(f'<text x="{x_px + x_name_offset}" y="{int(y_px)}" font-size="17">{summary}</text>')
+        
+        y_px += y_increment_px
+    
+    y_px += y_increment_px / 2 # Add some space between days
 
 
+# Construct the final SVG
+output = '<svg width="600" height="800" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans">\n'
+output += '\n'.join(svg_elements)
+output += '\n</svg>'
 
 # Write output
 codecs.open('almost_done.svg', 'w', encoding='utf-8').write(output)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
