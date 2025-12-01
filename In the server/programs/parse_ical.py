@@ -97,7 +97,10 @@ def generate_svg_for_page(events, filename):
 
             summary = event_data['summary'].replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
             
-            if event_data['is_all_day']:
+            # Treat timed events that span across midnight as all-day events for the partial days
+            is_all_day_display = event_data.get('is_all_day', False) or event_data.get('is_partial_span', False)
+
+            if is_all_day_display:
                 entry_name = "All-day: " + summary
                 day_event_elements.append(f'<text x="{x_px}" y="{int(y_px_for_day)}" font-size="17" font-weight="bold">{entry_name}</text>')
             else:
@@ -200,9 +203,12 @@ for component in event_list:
 
             # Only add event instances that fall within our desired window
             if today <= current_date < fourteen_days_out:
+                 # Flag timed events that span multiple days to display them as all-day
+                 is_partial_span = (dtstart_nz.date() < current_date) or (dtend_nz.date() > current_date)
                  all_events.append({
                     'summary': summary,
                     'is_all_day': False,
+                    'is_partial_span': is_partial_span,
                     'start_date': current_date,       # The day this instance of the event is on
                     'sort_key': dtstart_nz,           # Sort all instances by the original start time
                     'dtstart_nz': dtstart_nz,         # The original start time (for display)
@@ -213,8 +219,28 @@ for component in event_list:
 # Sort all events: first by date, then all-day events first, then by time
 all_events.sort(key=lambda e: (e['start_date'], not e['is_all_day'], e['sort_key']))
 
+# --- Filter out events that ended more than 4 hours ago ---
+now_in_nz = datetime.datetime.now(nz_tz)
+four_hours_ago = now_in_nz - timedelta(hours=4)
+
+filtered_events = []
+for event in all_events:
+    if event['is_all_day']:
+        # Keep all-day events for today and future days, remove past ones.
+        if event['start_date'] < today:
+            continue
+        else:
+            filtered_events.append(event)
+    else:
+        # For timed events, check their original end time.
+        event_end_time = event['dtend_nz']
+        if event_end_time < four_hours_ago:
+            continue
+        else:
+            filtered_events.append(event)
+
 # Generate first page and get overflow events
-overflow_events = generate_svg_for_page(all_events, 'almost_done_0.svg')
+overflow_events = generate_svg_for_page(filtered_events, 'almost_done_0.svg')
 
 # Generate second page with overflow events
 generate_svg_for_page(overflow_events, 'almost_done_1.svg')
