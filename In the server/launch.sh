@@ -8,26 +8,30 @@ unset PYTHONPATH
 # Run python from the virtual environment directly
 .venv/bin/python3 programs/parse_ical.py
 
-rsvg-convert --background-color=white -o almost_done.png almost_done.svg
+# Define the pages to process in a loop
+for page_num in 0 1; do
+    svg_file="almost_done_${page_num}.svg"
+    
+    if [ -e "$svg_file" ]; then
+        png_file="almost_done_${page_num}.png"
+        done_file="done_${page_num}.png"
 
-#We optimize the image
-pngcrush -force -c 0 almost_done.png done.png
+        echo "Processing $svg_file..."
 
-if [ -d "/var/www/kindle/" ]; then
-    echo "Folder exists."
-    #We move the image where it needs to be
-    rm /var/www/kindle/done.png
-    mv done.png /var/www/kindle/done.png
-else
-    echo "Folder does not exist."
-fi
+        rsvg-convert --background-color=white -o "$png_file" "$svg_file"
+        pngcrush -force -c 0 "$png_file" "$done_file"
 
-rm basic.ics
+        if [ -d "/var/www/kindle/" ]; then
+            echo "Moving $done_file to /var/www/kindle/"
+            rm -f "/var/www/kindle/$done_file"
+            mv "$done_file" "/var/www/kindle/"
+        fi
 
-if [ -e "almost_done.png" ]; then
-    rm almost_done.png
-fi
-if [ -e "almost_done.svg" ]; then
-    rm almost_done.svg
-fi
+        # Cleanup intermediate files
+        rm "$png_file"
+        rm "$svg_file"
+    fi
+done
+
+rm -f basic.ics
 
