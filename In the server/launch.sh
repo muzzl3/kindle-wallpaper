@@ -1,5 +1,15 @@
 #!/bin/sh
 
+LOCKFILE="/tmp/kindle-wallpaper.lock"
+
+if [ -e "$LOCKFILE" ]; then
+    echo "Lockfile exists, another instance is running."
+    exit 1
+fi
+
+trap 'rm -f "$LOCKFILE"' EXIT
+touch "$LOCKFILE"
+
 cd "$(dirname "$0")"
 
 # Unset PYTHONPATH to prevent conflicts with the virtual environment
@@ -22,9 +32,9 @@ for page_num in 0 1; do
         pngcrush -force -c 0 "$png_file" "$done_file"
 
         if [ -d "/var/www/kindle/" ]; then
-            echo "Moving $done_file to /var/www/kindle/"
-            rm -f "/var/www/kindle/$done_file"
-            mv "$done_file" "/var/www/kindle/"
+            echo "$(date): Moving $done_file to /var/www/kindle/"
+            #rm -f "/var/www/kindle/$done_file"
+            mv -f "$done_file" "/var/www/kindle/"
         fi
 
         # Cleanup intermediate files

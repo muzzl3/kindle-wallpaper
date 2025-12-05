@@ -182,6 +182,7 @@ for component in event_list:
                     'summary': summary,
                     'is_all_day': True,
                     'start_date': current_date,
+                    'end_date_exclusive': end_date,
                     'sort_key': datetime.datetime.combine(current_date, datetime.time.min),
                 })
             current_date += timedelta(days=1)
@@ -226,8 +227,8 @@ four_hours_ago = now_in_nz - timedelta(hours=4)
 filtered_events = []
 for event in all_events:
     if event['is_all_day']:
-        # Keep all-day events for today and future days, remove past ones.
-        if event['start_date'] < today:
+        # For all-day events, check their original end date.
+        if event['end_date_exclusive'] < today:
             continue
         else:
             filtered_events.append(event)
