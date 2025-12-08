@@ -29,7 +29,9 @@ if [ -s "/mnt/us/linkss/screensavers/done_0.png.new" ]; then
     if [ ! -f "/mnt/us/linkss/screensavers/done_0.png" ] || \
        [ "$(md5sum /mnt/us/linkss/screensavers/done_0.png.new | awk '{print $1}')" != "$(md5sum /mnt/us/linkss/screensavers/done_0.png | awk '{print $1}')" ]; then
         echo "Replacing done_0.png." >> $LOG_FILE
-        mv "/mnt/us/linkss/screensavers/done_0.png.new" "/mnt/us/linkss/screensavers/done_0.png"
+        #mv "/mnt/us/linkss/screensavers/done_0.png.new" "/mnt/us/linkss/screensavers/done_0.png"
+        rm -f "/mnt/us/linkss/screensavers/done_0.png.new"
+        rm -f "/mnt/us/linkss/screensavers/done_0.png"
         REPLACED_ANY=1
     else
         echo "done_0.png is already up to date." >> $LOG_FILE
@@ -45,9 +47,9 @@ if [ -s "/mnt/us/linkss/screensavers/done_1.png.new" ]; then
     if [ ! -f "/mnt/us/linkss/screensavers/done_1.png" ] || \
        [ "$(md5sum /mnt/us/linkss/screensavers/done_1.png.new | awk '{print $1}')" != "$(md5sum /mnt/us/linkss/screensavers/done_1.png | awk '{print $1}')" ]; then
         echo "Replacing done_1.png." >> $LOG_FILE
-        #mv "/mnt/us/linkss/screensavers/done_1.png.new" "/mnt/us/linkss/screensavers/done_1.png"
-        rm -f "/mnt/us/linkss/screensavers/done_1.png.new"
-        rm -f "/mnt/us/linkss/screensavers/done_1.png"
+        mv "/mnt/us/linkss/screensavers/done_1.png.new" "/mnt/us/linkss/screensavers/done_1.png"
+        #rm -f "/mnt/us/linkss/screensavers/done_1.png.new"
+        #rm -f "/mnt/us/linkss/screensavers/done_1.png"
         REPLACED_ANY=1
     else
         echo "done_1.png is already up to date." >> $LOG_FILE

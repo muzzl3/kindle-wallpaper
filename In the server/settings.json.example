@@ -1,3 +1,22 @@
 {
-  "ICAL_URL": "your_ical_url_here"
+  "ICAL_URL": "your_ical_url_here",
+  "timezone": "Pacific/Auckland",
+  "date_format_option": "long",
+  "event_fetching_days": 31,
+  "past_event_filter_hours": 4,
+  "output_filenames": {
+    "ical": "basic.ics"
+  },
+  "svg_settings": {
+    "width": 600,
+    "height": 800,
+    "font_family": "DejaVu Sans",
+    "top_margin": 50,
+    "bottom_margin": 20,
+    "x_px": 20,
+    "x_name_offset": 260,
+    "min_y_increment": 21,
+    "day_header_font_size": 25,
+    "event_font_size": 17
+  }
 }

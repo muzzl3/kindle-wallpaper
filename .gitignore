@@ -1,4 +1,6 @@
 # Private settings
 In the server/settings.json
-In the server/done*.png
+In the server/*.png
 */.venv/*
+In the server/*svg
+In the server/*.ics

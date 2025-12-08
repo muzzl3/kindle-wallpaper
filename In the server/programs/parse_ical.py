@@ -16,18 +16,46 @@ try:
     with open('settings.json', 'r') as f:
         settings = json.load(f)
         ICAL_URL = settings['ICAL_URL']
+        TIMEZONE = settings.get('timezone', 'UTC')
+        EVENT_FETCHING_DAYS = settings.get('event_fetching_days', 31)
+        PAST_EVENT_FILTER_HOURS = settings.get('past_event_filter_hours', 4)
+        OUTPUT_FILENAMES = settings.get('output_filenames', {
+            "ical": "basic.ics"
+        })
+        SVG_SETTINGS = settings.get('svg_settings', {
+            "width": 600,
+            "height": 800,
+            "font_family": "DejaVu Sans",
+            "top_margin": 50,
+            "bottom_margin": 20,
+            "x_px": 20,
+            "x_name_offset": 260,
+            "min_y_increment": 21,
+            "day_header_font_size": 25,
+            "event_font_size": 17
+        })
+        DATE_FORMAT_OPTION = settings.get('date_format_option', 'long')
 except FileNotFoundError:
     print("Error: settings.json not found in 'In the server/'. Please create it based on settings.json.example.", file=sys.stderr)
     exit(1)
-except KeyError:
-    print("Error: ICAL_URL not found in settings.json.", file=sys.stderr)
+except KeyError as e:
+    print(f"Error: Missing required key in settings.json: {e}", file=sys.stderr)
     exit(1)
+
+def format_date_with_ordinal(d):
+    """Formats a date as 'Weekday Dayth', e.g., 'Tuesday 09th'."""
+    day = d.day
+    if 4 <= day <= 20 or 24 <= day <= 30:
+        suffix = "th"
+    else:
+        suffix = ["st", "nd", "rd"][day % 10 - 1]
+    return d.strftime(f'%A %d{suffix}')
 
 def generate_svg_for_page(events, filename):
     """Generates an SVG file for a given list of events and returns the overflow."""
     if not events:
         # Create a blank SVG if there are no events
-        blank_svg = '<svg width="600" height="800" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans"></svg>'
+        blank_svg = f"<svg width='{SVG_SETTINGS['width']}' height='{SVG_SETTINGS['height']}' xmlns='http://www.w3.org/2000/svg' font-family='{SVG_SETTINGS['font_family']}'></svg>"
         codecs.open(filename, 'w', encoding='utf-8').write(blank_svg)
         return []
 
@@ -36,9 +64,9 @@ def generate_svg_for_page(events, filename):
     num_days = len(grouped_events)
     num_events = len(events)
 
-    svg_height = 800
-    top_margin = 50
-    bottom_margin = 20
+    svg_height = SVG_SETTINGS['height']
+    top_margin = SVG_SETTINGS['top_margin']
+    bottom_margin = SVG_SETTINGS['bottom_margin']
     available_height = svg_height - top_margin - bottom_margin
 
     y_increment_px = 40
@@ -48,14 +76,14 @@ def generate_svg_for_page(events, filename):
         if total_units > 0:
             calculated_increment = available_height / total_units
             # Ensure the increment is not so small that text overlaps
-            min_increment = 21
+            min_increment = SVG_SETTINGS['min_y_increment']
             y_increment_px = max(calculated_increment, min_increment)
 
     # --- Generate SVG content and identify overflow ---
     svg_elements = []
     y_px = float(top_margin)
-    x_px = 20
-    x_name_offset = 260
+    x_px = SVG_SETTINGS['x_px']
+    x_name_offset = SVG_SETTINGS['x_name_offset']
 
     overflow_events = []
     is_overflow = False
@@ -80,7 +108,11 @@ def generate_svg_for_page(events, filename):
             break
 
         # Prepare header and event elements for the day
-        day_header_str = f'<text x="{x_px}" y="{int(y_px)}" font-size="25px" font-weight="bold">{day.strftime("%A, %d %B")}</text>'
+        if DATE_FORMAT_OPTION == 'short':
+            date_str = format_date_with_ordinal(day)
+        else:
+            date_str = day.strftime('%A, %d %B')
+        day_header_str = f"<text x='{x_px}' y='{int(y_px)}' font-size='{SVG_SETTINGS['day_header_font_size']}px' font-weight='bold'>{date_str}</text>"
         y_after_header = y_px + (y_increment_px * 1.2)
         
         day_event_elements = []
@@ -102,14 +134,14 @@ def generate_svg_for_page(events, filename):
 
             if is_all_day_display:
                 entry_name = "All-day: " + summary
-                day_event_elements.append(f'<text x="{x_px}" y="{int(y_px_for_day)}" font-size="17" font-weight="bold">{entry_name}</text>')
+                day_event_elements.append(f"<text x='{x_px}' y='{int(y_px_for_day)}' font-size='{SVG_SETTINGS['event_font_size']}' font-weight='bold'>{entry_name}</text>")
             else:
                 dtstart_nz = event_data['dtstart_nz']
                 dtend_nz = event_data['dtend_nz']
                 entry_date = dtstart_nz.strftime("%H:%M") + '-' +  dtend_nz.strftime("%H:%M")
 
-                day_event_elements.append(f'<text x="{x_px}" y="{int(y_px_for_day)}" font-size="17">{entry_date}</text>')
-                day_event_elements.append(f'<text x="{x_px + x_name_offset}" y="{int(y_px_for_day)}" font-size="17">{summary}</text>')
+                day_event_elements.append(f"<text x='{x_px}' y='{int(y_px_for_day)}' font-size='{SVG_SETTINGS['event_font_size']}'>{entry_date}</text>")
+                day_event_elements.append(f"<text x='{x_px + x_name_offset}' y='{int(y_px_for_day)}' font-size='{SVG_SETTINGS['event_font_size']}'>{summary}</text>")
             
             y_px_for_day += y_increment_px
 
@@ -134,7 +166,7 @@ def generate_svg_for_page(events, filename):
             break
 
     # Construct the final SVG
-    output = '<svg width="600" height="800" xmlns="http://www.w3.org/2000/svg" font-family="DejaVu Sans">'
+    output = f"<svg width='{SVG_SETTINGS['width']}' height='{SVG_SETTINGS['height']}' xmlns='http://www.w3.org/2000/svg' font-family='{SVG_SETTINGS['font_family']}'>"
     output += '\n'.join(svg_elements)
     output += '\n</svg>'
 
@@ -143,23 +175,26 @@ def generate_svg_for_page(events, filename):
     return overflow_events
 
 
+
 # --- Main script ---
 
-urllib.request.urlretrieve(ICAL_URL, "basic.ics")
+urllib.request.urlretrieve(ICAL_URL, OUTPUT_FILENAMES['ical'])
 
-ical_content = open('basic.ics', 'rb').read()
+ical_content = open(OUTPUT_FILENAMES['ical'], 'rb').read()
 ical_calendar = Calendar.from_ical(ical_content)
 
-# Fetch events for a longer period (e.g., 31 days) to have enough for multiple pages
-today = datetime.date.today()
-fourteen_days_out = today + timedelta(days=31)
-nz_tz = zoneinfo.ZoneInfo("Pacific/Auckland")
+# Define timezones
+nz_tz = zoneinfo.ZoneInfo(TIMEZONE)
 utc_tz = zoneinfo.ZoneInfo("UTC")
+
+# Fetch events for a longer period to have enough for multiple pages
+today = datetime.datetime.now(nz_tz).date()
+future_days = today + timedelta(days=EVENT_FETCHING_DAYS)
 
 # Get all events in the range
 event_list = recurring_ical_events.of(ical_calendar).between(
     today,
-    fourteen_days_out
+    future_days
 )
 
 all_events = []
@@ -177,7 +212,7 @@ for component in event_list:
         current_date = start_date
         while current_date < end_date:
             # Only add event instances that fall within our desired window
-            if today <= current_date < fourteen_days_out:
+            if today <= current_date < future_days:
                 all_events.append({
                     'summary': summary,
                     'is_all_day': True,
@@ -203,7 +238,7 @@ for component in event_list:
                 break
 
             # Only add event instances that fall within our desired window
-            if today <= current_date < fourteen_days_out:
+            if today <= current_date < future_days:
                  # Flag timed events that span multiple days to display them as all-day
                  is_partial_span = (dtstart_nz.date() < current_date) or (dtend_nz.date() > current_date)
                  all_events.append({
@@ -220,15 +255,15 @@ for component in event_list:
 # Sort all events: first by date, then all-day events first, then by time
 all_events.sort(key=lambda e: (e['start_date'], not e['is_all_day'], e['sort_key']))
 
-# --- Filter out events that ended more than 4 hours ago ---
+# --- Filter out past events ---
 now_in_nz = datetime.datetime.now(nz_tz)
-four_hours_ago = now_in_nz - timedelta(hours=4)
+four_hours_ago = now_in_nz - timedelta(hours=PAST_EVENT_FILTER_HOURS)
 
 filtered_events = []
 for event in all_events:
     if event['is_all_day']:
         # For all-day events, check their original end date.
-        if event['end_date_exclusive'] < today:
+        if event['end_date_exclusive'] <= today:
             continue
         else:
             filtered_events.append(event)
@@ -241,7 +276,7 @@ for event in all_events:
             filtered_events.append(event)
 
 # Generate first page and get overflow events
-overflow_events = generate_svg_for_page(filtered_events, 'almost_done_0.svg')
+overflow_events = generate_svg_for_page(filtered_events, "almost_done_0.svg")
 
 # Generate second page with overflow events
-generate_svg_for_page(overflow_events, 'almost_done_1.svg')
+generate_svg_for_page(overflow_events, "almost_done_1.svg")
